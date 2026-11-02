@@ -19,8 +19,9 @@ reminders work like Duolingo's.
    (`server/src/sources.ts`: encyclopedias, journals, .gov/.edu, official docs), and writes one
    `FACT:` line per finding. Only facts carrying an API citation to a trusted page are kept, so
    every URL and quote comes from the search results, not from the model's memory.
-2. **Write.** From those numbered facts, Claude writes 10 items: true/false, multiple choice and
-   "spot the error", at least 4 of them traps.
+2. **Write.** From those numbered facts, Claude writes 10 items: true/false, single-answer
+   multiple choice, "select all that apply" and "spot the error", several of them traps.
+   Select-all items are scored all or nothing.
 3. **Check.** An independent pass answers every item from the evidence alone. Items where it
    disagrees with the key, or the evidence doesn't settle it, are dropped.
 4. **Report.** Two learner reports retire an item for everyone.
@@ -71,3 +72,15 @@ or sign and upload to TestFlight. Signing uses the same 7 secrets as Billow; see
 `scripts/signing.sh`.
 
 The icon is drawn by `tools/make_icon.py` (Pillow).
+
+## Intro video
+
+A 3-minute 1920x1080 intro is cut from a scripted UI tour (`SharpyUITests/TourUITests.swift`,
+demo data, `-ui-tour` adds the server's research pauses):
+
+1. Actions → iOS → Run workflow → **video**. Download the `tour` artifact (raw.mp4, marks.txt, rec_start.txt).
+2. `python tools/make_music.py music.wav --seconds 180` — an original synthesized background track.
+3. `python tools/make_intro.py --tour <tour dir> --icon Sharpy/Assets.xcassets/AppIcon.appiconset/icon-1024.png --music music.wav --out marketing/sharpy-intro-1920x1080.mp4`
+
+Captions and cards live at the top of `make_intro.py`; per-step hold lengths decide how long
+still screens stay, and are scaled so the cut lands on exactly 3:00.
