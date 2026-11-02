@@ -52,7 +52,7 @@ struct ItemCardView: View {
         let tint: Color = switch m {
         case .answer: answerColor
         case .wrongPick: Palette.wrong
-        default: .accentColor
+        default: Palette.brand
         }
         return Button { onChoose(i) } label: {
             HStack(alignment: .top, spacing: 10) {
@@ -177,7 +177,7 @@ struct SessionSummaryView: View {
                 stat("\(result.xp)", "XP", "bolt.fill", Palette.trap)
                 stat(result.answered > 0 ? "\(Int((Double(result.correct) / Double(result.answered) * 100).rounded()))%" : "–",
                      "Accuracy", "target", Palette.correct)
-                stat("\(result.trapsCaught)/\(result.trapsSeen)", "Traps caught", "shield.lefthalf.filled", .accentColor)
+                stat("\(result.trapsCaught)/\(result.trapsSeen)", "Traps caught", "shield.lefthalf.filled", Palette.brand)
             }
             Spacer()
             Button("Done", action: close).buttonStyle(PrimaryButtonStyle())

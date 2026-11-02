@@ -2,6 +2,8 @@ import SafariServices
 import SwiftUI
 
 enum Palette {
+    /// Sharpy indigo, from the asset catalog (light and dark variants).
+    static let brand = Color("AccentColor")
     static let correct = Color(red: 0.13, green: 0.66, blue: 0.38)
     static let wrong = Color(red: 0.89, green: 0.26, blue: 0.27)
     static let trap = Color(red: 0.96, green: 0.58, blue: 0.08)
@@ -72,8 +74,8 @@ struct Chip: View {
         .font(.subheadline.weight(.medium))
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(selected ? Color.accentColor : Color.accentColor.opacity(0.12), in: Capsule())
-        .foregroundStyle(selected ? Color.white : Color.accentColor)
+        .background(selected ? Palette.brand : Palette.brand.opacity(0.12), in: Capsule())
+        .foregroundStyle(selected ? Color.white : Palette.brand)
     }
 }
 
@@ -103,7 +105,7 @@ struct SourceRow: View {
         Button { showing = true } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Color.accentColor)
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Palette.brand)
                     Text(source.publisher).font(.caption.weight(.semibold))
                     Text("·").foregroundStyle(.secondary)
                     Text(source.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -120,7 +122,7 @@ struct SourceRow: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .background(Palette.brand.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showing) {
@@ -143,7 +145,7 @@ struct SafariView: UIViewControllerRepresentable {
 
 /// Large rounded button used for the main actions.
 struct PrimaryButtonStyle: ButtonStyle {
-    var color: Color = .accentColor
+    var color: Color = Palette.brand
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

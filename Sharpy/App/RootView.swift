@@ -4,11 +4,14 @@ struct RootView: View {
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
-        if settings.onboarded {
-            MainTabs()
-        } else {
-            OnboardingView()
+        Group {
+            if settings.onboarded {
+                MainTabs()
+            } else {
+                OnboardingView()
+            }
         }
+        .tint(Palette.brand)
     }
 }
 

@@ -158,14 +158,14 @@ struct DiscoverCardView: View {
             Text(card.eyebrow)
                 .font(.caption.weight(.bold))
                 .textCase(.uppercase)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Palette.brand)
             Text(card.title).font(.title3.bold())
             Text(card.body).fixedSize(horizontal: false, vertical: true)
             if !card.bullets.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(card.bullets, id: \.self) { bullet in
                         HStack(alignment: .top, spacing: 8) {
-                            Circle().fill(Color.accentColor).frame(width: 6, height: 6).padding(.top, 7)
+                            Circle().fill(Palette.brand).frame(width: 6, height: 6).padding(.top, 7)
                             Text(bullet).fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -189,7 +189,7 @@ struct DiscoverCardView: View {
             Text(check.question).font(.subheadline.weight(.semibold))
             ForEach(check.choices.indices, id: \.self) { i in
                 let isAnswer = i == check.answerIndex
-                let color: Color = picked == nil ? .accentColor : (isAnswer ? Palette.correct : (picked == i ? Palette.wrong : .secondary))
+                let color: Color = picked == nil ? Palette.brand : (isAnswer ? Palette.correct : (picked == i ? Palette.wrong : .secondary))
                 Button { picked = i } label: {
                     HStack {
                         Text(check.choices[i]).multilineTextAlignment(.leading)

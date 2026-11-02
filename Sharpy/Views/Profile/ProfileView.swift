@@ -91,7 +91,7 @@ struct ProfileView: View {
                 tile(s.accuracy.map { "\(Int(($0 * 100).rounded()))%" } ?? "–", "Accuracy", "target", Palette.correct)
             }
             GridRow {
-                tile("\(s.trapsCaught)", "Traps caught", "shield.lefthalf.filled", .accentColor)
+                tile("\(s.trapsCaught)", "Traps caught", "shield.lefthalf.filled", Palette.brand)
                 tile("\(s.answered)", "Questions answered", "checkmark.circle", .secondary)
             }
         }
@@ -129,7 +129,7 @@ struct StreakCalendar: View {
                             .font(.caption2.weight(isToday ? .bold : .regular))
                             .foregroundStyle(met ? .white : .secondary)
                     }
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(isToday ? Color.accentColor : .clear, lineWidth: 2))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(isToday ? Palette.brand : .clear, lineWidth: 2))
             }
         }
     }

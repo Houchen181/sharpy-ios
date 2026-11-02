@@ -52,7 +52,7 @@ struct SessionFlowView: View {
             Spacer()
             Image(systemName: "brain.head.profile")
                 .font(.system(size: 56, weight: .semibold))
-                .foregroundStyle(Color.accentColor.gradient)
+                .foregroundStyle(Palette.brand.gradient)
                 .symbolEffect(.pulse)
             Text(status)
                 .font(.headline)
@@ -129,7 +129,7 @@ struct SessionFlowView: View {
 
             if selected != nil {
                 Button(index + 1 < items.count ? "Continue" : "Finish") { next() }
-                    .buttonStyle(PrimaryButtonStyle(color: selected == item.answerIndex ? Palette.correct : .accentColor))
+                    .buttonStyle(PrimaryButtonStyle(color: selected == item.answerIndex ? Palette.correct : Palette.brand))
                     .padding(20)
                     .transition(.move(edge: .bottom))
             }
@@ -184,8 +184,9 @@ struct SessionFlowView: View {
         }
         items = queue
         index = 0
-        selected = Launch.tab == "answered" ? queue[0].answerIndex : nil
+        selected = nil
         phase = .running
+        if Launch.tab == "answered" { choose(queue[0].answerIndex) }
     }
 
     private func choose(_ choice: Int) {

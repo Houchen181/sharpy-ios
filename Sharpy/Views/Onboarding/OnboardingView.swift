@@ -32,7 +32,7 @@ struct OnboardingView: View {
             Spacer()
             Image(systemName: "brain.head.profile")
                 .font(.system(size: 76, weight: .semibold))
-                .foregroundStyle(Color.accentColor.gradient)
+                .foregroundStyle(Palette.brand.gradient)
             VStack(spacing: 12) {
                 Text("Stay sharp in the age of AI")
                     .font(.largeTitle.bold())
@@ -126,7 +126,7 @@ struct StepScaffold<Content: View>: View {
             ScrollView { content.padding(.vertical, 4) }
                 .scrollBounceBehavior(.basedOnSize)
             Button(buttonTitle, action: action)
-                .buttonStyle(PrimaryButtonStyle(color: enabled ? .accentColor : .gray))
+                .buttonStyle(PrimaryButtonStyle(color: enabled ? Palette.brand : .gray))
                 .disabled(!enabled)
         }
         .padding(24)
@@ -145,11 +145,11 @@ struct SelectableRow<Label: View>: View {
                 Spacer(minLength: 8)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(selected ? Palette.brand : Color.secondary)
             }
             .padding(16)
             .background(Palette.card, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(selected ? Color.accentColor : .clear, lineWidth: 2))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(selected ? Palette.brand : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
     }

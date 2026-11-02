@@ -54,10 +54,10 @@ struct TrainView: View {
         return VStack(spacing: 18) {
             HStack(spacing: 20) {
                 ZStack {
-                    Circle().stroke(Color.accentColor.opacity(0.15), lineWidth: 12)
+                    Circle().stroke(Palette.brand.opacity(0.15), lineWidth: 12)
                     Circle()
                         .trim(from: 0, to: progress)
-                        .stroke(s.doneToday ? Palette.correct : Color.accentColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                        .stroke(s.doneToday ? Palette.correct : Palette.brand, style: StrokeStyle(lineWidth: 12, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                     VStack(spacing: 0) {
                         Text("\(min(s.todayAnswered, settings.dailyGoal))").font(.title.bold()).monospacedDigit()
@@ -81,7 +81,7 @@ struct TrainView: View {
             Button(s.doneToday ? "Practice more" : (s.todayAnswered > 0 ? "Keep going" : "Start")) {
                 mode = .daily
             }
-            .buttonStyle(PrimaryButtonStyle(color: s.doneToday ? Palette.correct : .accentColor))
+            .buttonStyle(PrimaryButtonStyle(color: s.doneToday ? Palette.correct : Palette.brand))
         }
         .padding(18)
         .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
@@ -130,7 +130,7 @@ struct TrainView: View {
 
     private var honestyNote: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "checkmark.shield.fill").foregroundStyle(Color.accentColor)
+            Image(systemName: "checkmark.shield.fill").foregroundStyle(Palette.brand)
             Text("Questions are written by AI from trusted sources, then independently re-checked against the cited text. Some statements are deliberately wrong: your job is to catch them.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
