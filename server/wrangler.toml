@@ -22,7 +22,7 @@ simple = { limit = 30, period = 60 }
 [vars]
 MODEL = "claude-opus-5-5"
 # Every generation is a paid Claude call. Past these caps the app serves cached content only.
-DAILY_GENERATION_CAP = "150"
+DAILY_GENERATION_CAP = "40"
 PER_INSTALL_DAILY_GENERATIONS = "6"
 
 [observability]
