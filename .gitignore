@@ -31,3 +31,6 @@ node_modules/
 !.env.example
 
 .DS_Store
+
+# Screenshots pulled from CI
+marketing/
