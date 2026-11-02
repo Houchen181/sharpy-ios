@@ -93,6 +93,14 @@ export async function research(
     messages.push({ role: "assistant", content: res.content });
   }
 
+  return factsFromContent(content);
+}
+
+/**
+ * Splits Claude's "FACT:" lines out of the response and attaches the citations of
+ * every text block overlapping each fact. Facts with no trusted citation are dropped.
+ */
+export function factsFromContent(content: BetaContentBlock[]): Evidence[] {
   // Lay the text blocks end to end, remembering which citations cover which span.
   let full = "";
   const spans: { start: number; end: number; sources: Source[] }[] = [];
@@ -116,8 +124,10 @@ export async function research(
   const facts: Evidence[] = [];
   const re = /FACT:\s*([\s\S]*?)(?=\n\s*FACT:|$)/g;
   for (let m = re.exec(full); m; m = re.exec(full)) {
+    // A fact ends at the next FACT line or blank line (ignore any closing remarks).
+    const para = m[0].split(/\n\s*\n/)[0];
     const start = m.index;
-    const end = m.index + m[0].length;
+    const end = m.index + para.length;
     const seen = new Set<string>();
     const sources: Source[] = [];
     for (const s of spans) {
@@ -130,7 +140,7 @@ export async function research(
         }
       }
     }
-    const text = m[1].replace(/\s+/g, " ").trim();
+    const text = para.replace(/^FACT:\s*/, "").replace(/\s+/g, " ").trim();
     if (text && sources.length) facts.push({ id: facts.length + 1, text, sources });
   }
   return facts;
