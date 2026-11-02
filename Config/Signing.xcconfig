@@ -1,0 +1,7 @@
+// Signing for the Sharpy app target.
+// CI generates Signing.generated.xcconfig (DEVELOPMENT_TEAM, CODE_SIGN_STYLE,
+// SHARPY_CODE_SIGN_IDENTITY, PROVISIONING_PROFILE_SPECIFIER) from GitHub secrets.
+// On a Mac, leave it absent and pick your team in Xcode instead.
+CODE_SIGN_STYLE = Automatic
+SHARPY_CODE_SIGN_IDENTITY = Apple Development
+#include? "Signing.generated.xcconfig"

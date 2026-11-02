@@ -1,0 +1,205 @@
+name: iOS
+
+# Docs- and server-only changes skip the macOS build (server/ has its own workflow),
+# and manual runs don't repeat the compile job.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', 'server/**', '**/*.md', 'scripts/**', 'tools/**']
+  pull_request:
+    paths-ignore: ['docs/**', 'server/**', '**/*.md', 'scripts/**', 'tools/**']
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: Sign the build and upload it to TestFlight
+        type: boolean
+        default: true
+      screenshots:
+        description: Capture simulator screenshots (demo data, light + dark)
+        type: boolean
+        default: false
+
+# A new push cancels an older push build, but never a manual TestFlight run.
+concurrency:
+  group: ios-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  compile:
+    name: Compile (unsigned)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: xcodebuild -version
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build for device without signing
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Sharpy.xcodeproj -scheme Sharpy -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+  screenshots:
+    name: Simulator screenshots
+    if: github.event_name == 'workflow_dispatch' && inputs.screenshots
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Sharpy.xcodeproj -scheme Sharpy -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+      - name: Launch demo and capture each tab
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/Sharpy.app"
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")"
+          DEVICE="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          best = None
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if "Pro Max" in d["name"]:
+                      key = (runtime, d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"])
+          print(best[1] if best else "")
+          ')"
+          echo "Using simulator $DEVICE"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+          xcrun simctl install "$DEVICE" "$APP"
+          sleep 25   # let first-boot system banners clear before capturing
+          mkdir -p shots
+          for mode in light dark; do
+            xcrun simctl ui "$DEVICE" appearance "$mode"
+            for tab in train answered discover profile onboarding; do
+              xcrun simctl terminate "$DEVICE" "$BUNDLE_ID" 2>/dev/null || true
+              xcrun simctl launch "$DEVICE" "$BUNDLE_ID" -ui-demo -ui-tab "$tab"
+              sleep 7
+              xcrun simctl io "$DEVICE" screenshot "shots/$mode-$tab.png"
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/
+
+
+  testflight:
+    name: Sign & upload to TestFlight
+    if: github.event_name == 'workflow_dispatch' && inputs.testflight
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install distribution certificate and App Store profile
+        env:
+          CERT_P12_BASE64: ${{ secrets.DIST_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.APPSTORE_PROFILE_BASE64 }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/dist.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychain -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          PROFILE="$RUNNER_TEMP/appstore.mobileprovision"
+          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE"
+          security cms -D -i "$PROFILE" > "$RUNNER_TEMP/profile.plist"
+          UUID="$(plutil -extract UUID raw "$RUNNER_TEMP/profile.plist")"
+          NAME="$(plutil -extract Name raw "$RUNNER_TEMP/profile.plist")"
+          APP_ID="$(plutil -extract Entitlements.application-identifier raw "$RUNNER_TEMP/profile.plist")"
+          BUNDLE_ID="${APP_ID#*.}"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+
+          cat > Config/Signing.generated.xcconfig <<EOF
+          DEVELOPMENT_TEAM = $TEAM_ID
+          CODE_SIGN_STYLE = Manual
+          SHARPY_CODE_SIGN_IDENTITY = Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER = $NAME
+          EOF
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict><key>$BUNDLE_ID</key><string>$NAME</string></dict>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          EOF
+          echo "Signing as $BUNDLE_ID with profile '$NAME'"
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project Sharpy.xcodeproj -scheme Sharpy -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Sharpy.xcarchive" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            | xcbeautify --renderer github-actions
+
+      - name: Export and upload to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$KEY_PATH"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Sharpy.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "Uploaded build ${{ github.run_number }} — it appears in TestFlight after Apple finishes processing (~5–15 min)."
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
