@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// The question and its choices. After an answer, the right pick and any wrong pick are marked.
+/// The question and its choices. Single-answer kinds submit on tap; "select all"
+/// toggles `picks` until the learner taps Check. Once answered, right picks, missed
+/// answers and wrong picks are each marked.
 struct ItemCardView: View {
     let item: QuizItem
-    let selected: Int?
-    let onChoose: (Int) -> Void
+    /// The submitted answer, or nil while the learner is still choosing.
+    let answer: Set<Int>?
+    /// Choices ticked so far on a "select all" item.
+    let picks: Set<Int>
+    let onTap: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -34,14 +39,25 @@ struct ItemCardView: View {
     }
 
     private enum Mark {
-        case idle, answer, wrongPick, dimmed
+        /// Not answered yet; `picked` marks a ticked "select all" choice.
+        case idle(picked: Bool)
+        /// A correct choice the learner picked.
+        case answer
+        /// A correct choice the learner left out ("select all" only).
+        case missed
+        case wrongPick
+        case dimmed
     }
 
     private func mark(_ i: Int) -> Mark {
-        guard let selected else { return .idle }
-        if i == item.answerIndex { return .answer }
-        if i == selected { return .wrongPick }
-        return .dimmed
+        guard let answer else { return .idle(picked: picks.contains(i)) }
+        let correct = item.correctAnswers
+        switch (correct.contains(i), answer.contains(i)) {
+        case (true, true): return .answer
+        case (true, false): return item.kind == .selectAll ? .missed : .answer
+        case (false, true): return .wrongPick
+        case (false, false): return .dimmed
+        }
     }
 
     /// In "spot the error" the right pick is the false statement, so it's marked as the error.
@@ -49,14 +65,39 @@ struct ItemCardView: View {
 
     private func choice(_ i: Int, systemImage: String?) -> some View {
         let m = mark(i)
-        let tint: Color = switch m {
-        case .answer: answerColor
-        case .wrongPick: Palette.wrong
-        default: Palette.brand
+        let tint: Color
+        let filled: Bool
+        switch m {
+        case .idle(let picked):
+            tint = Palette.brand
+            filled = picked
+        case .answer:
+            tint = answerColor
+            filled = true
+        case .missed:
+            tint = Palette.trap
+            filled = false
+        case .wrongPick:
+            tint = Palette.wrong
+            filled = true
+        case .dimmed:
+            tint = .secondary
+            filled = false
         }
-        return Button { onChoose(i) } label: {
+        var idle = false, dimmed = false, missed = false
+        switch m {
+        case .idle(false): idle = true
+        case .dimmed: dimmed = true
+        case .missed: missed = true
+        default: break
+        }
+        let dash: [CGFloat] = missed ? [6, 4] : []
+
+        return Button { onTap(i) } label: {
             HStack(alignment: .top, spacing: 10) {
-                if let systemImage {
+                if item.kind == .selectAll {
+                    Image(systemName: checkbox(m)).font(.title3).foregroundStyle(idle ? Color.secondary : tint)
+                } else if let systemImage {
                     Image(systemName: systemImage).font(.headline)
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -64,34 +105,50 @@ struct ItemCardView: View {
                         .font(item.kind == .trueFalse ? .title3.weight(.semibold) : .body.weight(.medium))
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                    if m == .answer && item.kind == .spotTheError {
+                    if case .answer = m, item.kind == .spotTheError {
                         Text("This is the error").font(.caption.weight(.bold)).foregroundStyle(Palette.trap)
+                    }
+                    if missed {
+                        Text("Also correct: you missed this one").font(.caption.weight(.bold)).foregroundStyle(Palette.trap)
                     }
                 }
                 if item.kind != .trueFalse { Spacer(minLength: 0) }
-                if m == .answer {
-                    Image(systemName: item.kind == .spotTheError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .foregroundStyle(answerColor)
-                } else if m == .wrongPick {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.wrong)
+                if item.kind != .selectAll {
+                    if case .answer = m {
+                        Image(systemName: item.kind == .spotTheError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(answerColor)
+                    } else if case .wrongPick = m {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.wrong)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.kind == .trueFalse ? .center : .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, item.kind == .trueFalse ? 22 : 14)
             .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(m == .idle || m == .dimmed ? Palette.card : tint.opacity(0.12))
+                RoundedRectangle(cornerRadius: 14).fill(filled ? tint.opacity(0.12) : Palette.card)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(m == .idle ? Color.secondary.opacity(0.25) : (m == .dimmed ? .clear : tint), lineWidth: 2)
+                    .stroke(idle ? Color.secondary.opacity(0.25) : (dimmed ? .clear : tint),
+                            style: StrokeStyle(lineWidth: 2, dash: dash))
             )
-            .foregroundStyle(m == .idle ? Color.primary : (m == .dimmed ? Color.secondary : tint))
-            .opacity(m == .dimmed ? 0.6 : 1)
+            .foregroundStyle(idle ? Color.primary : (dimmed ? Color.secondary : tint))
+            .opacity(dimmed ? 0.6 : 1)
         }
         .buttonStyle(.plain)
-        .disabled(selected != nil)
+        .disabled(answer != nil)
+        .accessibilityAddTraits(picks.contains(i) ? .isSelected : [])
+    }
+
+    private func checkbox(_ m: Mark) -> String {
+        switch m {
+        case .idle(let picked): picked ? "checkmark.square.fill" : "square"
+        case .answer: "checkmark.square.fill"
+        case .missed: "square.dashed"
+        case .wrongPick: "xmark.square.fill"
+        case .dimmed: "square"
+        }
     }
 }
 

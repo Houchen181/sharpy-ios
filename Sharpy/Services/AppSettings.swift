@@ -65,7 +65,8 @@ final class AppSettings: ObservableObject {
         UserDefaults().removePersistentDomain(forName: suite)
         let settings = AppSettings(defaults: UserDefaults(suiteName: suite) ?? .standard)
         settings.onboarded = Launch.tab != "onboarding"
-        settings.topics = ["Immunology", "Quantum computing", "Macroeconomics"]
+        // The tour starts at onboarding and picks its topics on camera.
+        settings.topics = Launch.tab == "onboarding" ? [] : ["Immunology", "Quantum computing", "Macroeconomics"]
         settings.level = .student
         settings.dailyGoal = 10
         settings.remindersOn = true
@@ -77,6 +78,8 @@ final class AppSettings: ObservableObject {
 enum Launch {
     static let arguments = ProcessInfo.processInfo.arguments
     static var isDemo: Bool { arguments.contains("-ui-demo") }
+    /// Recording the promo tour: demo mode plus realistic waits where the server would work.
+    static var isTour: Bool { arguments.contains("-ui-tour") }
     static var tab: String? { value(after: "-ui-tab") }
 
     private static func value(after flag: String) -> String? {

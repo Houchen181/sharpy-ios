@@ -18,6 +18,10 @@ on:
         description: Capture simulator screenshots (demo data, light + dark)
         type: boolean
         default: false
+      video:
+        description: Record the UI tour for the intro video (edit locally with tools/make_intro.py)
+        type: boolean
+        default: false
 
 # A new push cancels an older push build, but never a manual TestFlight run.
 concurrency:
@@ -106,6 +110,66 @@ jobs:
           name: screenshots
           path: shots/
 
+
+  video:
+    name: Record tour
+    if: github.event_name == 'workflow_dispatch' && inputs.video
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Boot simulator
+        run: |
+          set -euo pipefail
+          DEVICE="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          best = None
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if "Pro Max" in d["name"]:
+                      key = (runtime, d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"])
+          print(best[1] if best else "")
+          ')"
+          echo "DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl ui "$DEVICE" appearance light
+          xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+      - name: Build app + UI tests
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing             -project Sharpy.xcodeproj -scheme Sharpy -destination "id=$DEVICE"             -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO             | xcbeautify --renderer github-actions
+      - name: Record the tour
+        run: |
+          sleep 20   # let first-boot system banners clear
+          xcrun simctl io "$DEVICE" recordVideo --codec=h264 --force "$RUNNER_TEMP/raw.mp4" 2> "$RUNNER_TEMP/rec.log" &
+          REC=$!
+          for i in $(seq 1 60); do grep -q "Recording started" "$RUNNER_TEMP/rec.log" && break; sleep 0.25; done
+          python3 -c 'import time; print(time.time())' > "$RUNNER_TEMP/rec_start.txt"
+          set +e
+          xcodebuild test-without-building             -project Sharpy.xcodeproj -scheme Sharpy -destination "id=$DEVICE"             -derivedDataPath "$RUNNER_TEMP/dd" -only-testing:SharpyUITests/TourUITests/testTour             CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/test.log" 2>&1
+          STATUS=$?
+          set -e
+          kill -INT "$REC"; wait "$REC" || true
+          mkdir -p tour
+          grep -E "TOURMARK|TOURSKIP" "$RUNNER_TEMP/test.log" | tee tour/marks.txt
+          cp "$RUNNER_TEMP/raw.mp4" "$RUNNER_TEMP/rec_start.txt" tour/
+          echo "UI test exit status: $STATUS"
+          grep -E "error|failed|Test Case" "$RUNNER_TEMP/test.log" | tail -20 || true
+          grep -q TOURMARK tour/marks.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tour
+          path: tour/
 
   testflight:
     name: Sign & upload to TestFlight

@@ -37,11 +37,28 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_MACCATALYST: NO
         ENABLE_PREVIEWS: YES
+  # Drives the scripted tour that CI records for the intro video.
+  SharpyUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: SharpyUITests
+    dependencies:
+      - target: Sharpy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.houchenli.sharpy.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Sharpy
 schemes:
   Sharpy:
     build:
       targets:
         Sharpy: all
+        SharpyUITests: [test]
+    test:
+      targets:
+        - SharpyUITests
     run:
       config: Debug
     archive:

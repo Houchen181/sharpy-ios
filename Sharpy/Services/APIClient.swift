@@ -100,7 +100,17 @@ struct APIClient {
         seen: [String],
         progress: @escaping (String) -> Void
     ) async throws -> [QuizItem] {
-        if Launch.isDemo { return DemoData.items }
+        if Launch.isDemo {
+            if Launch.isTour {
+                for message in ["Searching trusted sources for “\(topics.first ?? "")”…",
+                                "Writing questions from 14 sourced facts…",
+                                "Double-checking every answer against the sources…"] {
+                    progress(message)
+                    try? await Task.sleep(for: .seconds(1.8))
+                }
+            }
+            return DemoData.items
+        }
         let request = try request("v1/session", method: "POST", body: [
             "topics": topics, "level": level.rawValue, "count": count, "seen": seen,
         ])

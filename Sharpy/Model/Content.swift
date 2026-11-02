@@ -34,12 +34,14 @@ struct ItemSource: Codable, Hashable {
 enum ItemKind: String, Codable {
     case trueFalse = "true_false"
     case multipleChoice = "multiple_choice"
+    case selectAll = "select_all"
     case spotTheError = "spot_the_error"
 
     var label: String {
         switch self {
         case .trueFalse: "True or false?"
         case .multipleChoice: "Pick one"
+        case .selectAll: "Select all that apply"
         case .spotTheError: "Spot the error"
         }
     }
@@ -53,12 +55,16 @@ struct QuizItem: Codable, Identifiable, Hashable {
     /// ["True", "False"] for true/false items.
     let choices: [String]
     let answerIndex: Int
+    /// Every correct choice; only "select all" items have more than one.
+    var answerIndices: [Int]? = nil
     /// A convincing wrong statement, or a question baited with a common misconception.
     let isTrap: Bool
     let explanation: String
     let misconception: String
     let difficulty: Int
     let sources: [ItemSource]
+
+    var correctAnswers: Set<Int> { Set(answerIndices ?? [answerIndex]) }
 }
 
 struct CheckQuestion: Codable, Hashable {

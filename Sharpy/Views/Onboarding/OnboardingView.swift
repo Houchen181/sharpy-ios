@@ -215,6 +215,7 @@ struct TopicPicker: View {
     private func add() {
         settings.addTopic(draft)
         draft = ""
+        focused = false
     }
 }
 

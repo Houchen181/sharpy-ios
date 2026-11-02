@@ -27,7 +27,10 @@ struct SessionFlowView: View {
     @State private var status = "Getting your questions ready…"
     @State private var items: [QuizItem] = []
     @State private var index = 0
-    @State private var selected: Int?
+    /// The submitted answer for the current item; nil while the learner is choosing.
+    @State private var answer: Set<Int>?
+    /// Ticked choices on a "select all" item before Check is tapped.
+    @State private var picks: Set<Int> = []
     @State private var result = SessionResult()
     @State private var reported: Set<String> = []
 
@@ -95,7 +98,7 @@ struct SessionFlowView: View {
                     Image(systemName: "xmark").font(.title3.weight(.semibold)).foregroundStyle(.secondary)
                 }
                 .accessibilityLabel("End session")
-                ProgressView(value: Double(index + (selected == nil ? 0 : 1)), total: Double(items.count))
+                ProgressView(value: Double(index + (answer == nil ? 0 : 1)), total: Double(items.count))
                     .tint(Palette.correct)
                 Label("\(result.xp)", systemImage: "bolt.fill")
                     .font(.subheadline.weight(.bold))
@@ -108,11 +111,11 @@ struct SessionFlowView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        ItemCardView(item: item, selected: selected, onChoose: choose)
-                        if let selected {
+                        ItemCardView(item: item, answer: answer, picks: picks, onTap: tap)
+                        if let answer {
                             FeedbackView(
                                 item: item,
-                                correct: selected == item.answerIndex,
+                                correct: answer == item.correctAnswers,
                                 reported: reported.contains(item.id),
                                 onReport: { reason in report(item, reason: reason) }
                             )
@@ -122,22 +125,27 @@ struct SessionFlowView: View {
                     }
                     .padding(20)
                 }
-                .onChange(of: selected) { _, new in
+                .onChange(of: answer) { _, new in
                     if new != nil { withAnimation(.snappy.delay(0.15)) { proxy.scrollTo("feedback", anchor: .top) } }
                 }
             }
 
-            if selected != nil {
+            if let answer {
                 Button(index + 1 < items.count ? "Continue" : "Finish") { next() }
-                    .buttonStyle(PrimaryButtonStyle(color: selected == item.answerIndex ? Palette.correct : Palette.brand))
+                    .buttonStyle(PrimaryButtonStyle(color: answer == item.correctAnswers ? Palette.correct : Palette.brand))
                     .padding(20)
                     .transition(.move(edge: .bottom))
+            } else if item.kind == .selectAll {
+                Button("Check") { submit(picks) }
+                    .buttonStyle(PrimaryButtonStyle(color: picks.isEmpty ? .gray : Palette.brand))
+                    .disabled(picks.isEmpty)
+                    .padding(20)
             }
         }
-        .animation(.snappy, value: selected)
-        .sensoryFeedback(trigger: selected) { _, new in
+        .animation(.snappy, value: answer)
+        .sensoryFeedback(trigger: answer) { _, new in
             guard let new else { return nil }
-            return new == item.answerIndex ? .success : .error
+            return new == item.correctAnswers ? .success : .error
         }
     }
 
@@ -184,16 +192,28 @@ struct SessionFlowView: View {
         }
         items = queue
         index = 0
-        selected = nil
+        answer = nil
+        picks = []
         phase = .running
-        if Launch.tab == "answered" { choose(queue[0].answerIndex) }
+        if Launch.tab == "answered" { submit(queue[0].correctAnswers) }
     }
 
-    private func choose(_ choice: Int) {
-        guard selected == nil else { return }
-        selected = choice
+    /// Single-answer kinds submit on tap; "select all" toggles until Check.
+    private func tap(_ choice: Int) {
+        guard answer == nil else { return }
+        if items[index].kind == .selectAll {
+            if picks.contains(choice) { picks.remove(choice) } else { picks.insert(choice) }
+        } else {
+            submit([choice])
+        }
+    }
+
+    /// Scores the answer: all or nothing, so a partly right "select all" counts as a miss.
+    private func submit(_ choices: Set<Int>) {
+        guard answer == nil, !choices.isEmpty else { return }
+        answer = choices
         let item = items[index]
-        let correct = choice == item.answerIndex
+        let correct = choices == item.correctAnswers
 
         let gained = (correct ? 10 : 0) + (correct && item.isTrap ? 5 : 0)
         result.answered += 1
@@ -229,7 +249,8 @@ struct SessionFlowView: View {
     private func next() {
         if index + 1 < items.count {
             index += 1
-            selected = nil
+            answer = nil
+            picks = []
         } else {
             finish()
         }

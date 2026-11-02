@@ -1,11 +1,11 @@
 import { type Evidence, Meter, RefusedError, type Source, evidenceBlock, research, structured } from "./claude";
-
-/** A failure whose message is fit to show the learner. */
-export class GenerationError extends Error {}
 import { type Env, LEVELS, type Level } from "./env";
 import { quotaProblem, recordUsage } from "./usage";
 
-export type ItemKind = "true_false" | "multiple_choice" | "spot_the_error";
+/** A failure whose message is fit to show the learner. */
+export class GenerationError extends Error {}
+
+export type ItemKind = "true_false" | "multiple_choice" | "select_all" | "spot_the_error";
 
 /** What the app receives. True/false items use choices ["True", "False"]. */
 export interface QuizItem {
@@ -14,7 +14,10 @@ export interface QuizItem {
   kind: ItemKind;
   prompt: string;
   choices: string[];
+  /** The first (for single-answer kinds, the only) correct choice; kept for older app builds. */
   answerIndex: number;
+  /** Every correct choice, ascending. More than one only for "select_all". */
+  answerIndices: number[];
   /** A deliberately wrong statement (or a misconception-baited distractor) the learner should catch. */
   isTrap: boolean;
   explanation: string;
@@ -27,7 +30,7 @@ interface DraftItem {
   kind: ItemKind;
   prompt: string;
   choices: string[];
-  answer_index: number;
+  answer_indices: number[];
   is_trap: boolean;
   explanation: string;
   misconception: string;
@@ -37,7 +40,7 @@ interface DraftItem {
 
 interface Check {
   item: number;
-  answer_index: number;
+  answer_indices: number[];
   ok: boolean;
   note: string;
 }
@@ -54,8 +57,8 @@ Write plainly. Explanations teach the idea in one to three sentences and state t
 
 const CHECKER_SYSTEM = `You check practice items for Sharpy before learners see them. Use only the numbered evidence.
 For each item, work out which choice the evidence supports, without assuming the item's author was right.
-For true/false items answer 0 for True and 1 for False. For "which statement is wrong" items, answer with the wrong statement.
-Set ok to false if the evidence does not settle the item, if more than one choice could be defended, or if the wording is misleading.`;
+For true/false items answer [0] for True and [1] for False. For "which statement is wrong" items, answer with the wrong statement. For "select all that apply" items, list every choice the evidence supports, and only those.
+Set ok to false if the evidence does not settle the item, if a single-answer item has more than one defensible choice, or if the wording is misleading.`;
 
 const DRAFT_SCHEMA = {
   type: "object",
@@ -68,14 +71,14 @@ const DRAFT_SCHEMA = {
         type: "object",
         additionalProperties: false,
         required: [
-          "kind", "prompt", "choices", "answer_index", "is_trap",
+          "kind", "prompt", "choices", "answer_indices", "is_trap",
           "explanation", "misconception", "difficulty", "fact_ids",
         ],
         properties: {
-          kind: { type: "string", enum: ["true_false", "multiple_choice", "spot_the_error"] },
+          kind: { type: "string", enum: ["true_false", "multiple_choice", "select_all", "spot_the_error"] },
           prompt: { type: "string" },
           choices: { type: "array", items: { type: "string" } },
-          answer_index: { type: "integer" },
+          answer_indices: { type: "array", items: { type: "integer" } },
           is_trap: { type: "boolean" },
           explanation: { type: "string" },
           misconception: { type: "string" },
@@ -97,10 +100,10 @@ const CHECK_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["item", "answer_index", "ok", "note"],
+        required: ["item", "answer_indices", "ok", "note"],
         properties: {
           item: { type: "integer" },
-          answer_index: { type: "integer" },
+          answer_indices: { type: "array", items: { type: "integer" } },
           ok: { type: "boolean" },
           note: { type: "string" },
         },
@@ -131,23 +134,41 @@ function shuffle<T>(xs: T[]): T[] {
   return a;
 }
 
-/** Shuffles the choices of multiple-choice and spot-the-error items, keeping the key right. */
+/** Shuffles the choices of every kind except true/false, keeping the key right. */
 function shuffleChoices(item: QuizItem): QuizItem {
   if (item.kind === "true_false") return item;
   const order = shuffle(item.choices.map((_, i) => i));
+  const answers = item.answerIndices.map((a) => order.indexOf(a)).sort((a, b) => a - b);
   return {
     ...item,
     choices: order.map((i) => item.choices[i]),
-    answerIndex: order.indexOf(item.answerIndex),
+    answerIndex: answers[0],
+    answerIndices: answers,
   };
+}
+
+function sameAnswers(a: number[], b: number[]): boolean {
+  const x = [...new Set(a)].sort((p, q) => p - q);
+  const y = [...new Set(b)].sort((p, q) => p - q);
+  return x.length === y.length && x.every((v, i) => v === y[i]);
 }
 
 function wellFormed(d: DraftItem): boolean {
   if (!d.prompt.trim() || !d.explanation.trim()) return false;
-  if (d.answer_index < 0 || d.answer_index >= d.choices.length) return false;
-  if (d.kind === "true_false") return d.choices.length === 2;
-  if (d.kind === "multiple_choice") return d.choices.length === 4;
-  return d.choices.length >= 3 && d.choices.length <= 4;
+  const answers = new Set(d.answer_indices);
+  if (answers.size !== d.answer_indices.length) return false;
+  if (d.answer_indices.some((a) => a < 0 || a >= d.choices.length)) return false;
+  switch (d.kind) {
+    case "true_false":
+      return d.choices.length === 2 && answers.size === 1;
+    case "multiple_choice":
+      return d.choices.length === 4 && answers.size === 1;
+    case "select_all":
+      // At least one right and one wrong choice, so neither "tick all" nor "tick none" works.
+      return d.choices.length >= 4 && d.choices.length <= 5 && answers.size >= 2 && answers.size < d.choices.length;
+    case "spot_the_error":
+      return d.choices.length >= 3 && d.choices.length <= 4 && answers.size === 1;
+  }
 }
 
 /**
@@ -185,9 +206,10 @@ Evidence:
 ${evidenceBlock(facts)}
 
 Write 10 items:
-- 4 "true_false": the prompt is one statement; choices exactly ["True", "False"]; answer_index 0 if the statement is true, 1 if false. At least 2 must be false traps (is_trap true).
-- 4 "multiple_choice": the prompt is a question; exactly 4 choices, one correct, the others plausible. Set is_trap true when the most tempting wrong choice is a common misconception.
-- 2 "spot_the_error": the prompt is "One of these statements is wrong. Which one?"; 3 or 4 statements, all true except one subtle trap; answer_index points to the wrong one; is_trap true.
+- 3 "true_false": the prompt is one statement; choices exactly ["True", "False"]; answer_indices [0] if the statement is true, [1] if false. At least 2 must be false traps (is_trap true).
+- 3 "multiple_choice" (single answer): the prompt is a question; exactly 4 choices, one correct, the others plausible; answer_indices holds the correct one. Set is_trap true when the most tempting wrong choice is a common misconception.
+- 2 "select_all": the prompt is a question ending "Select all that apply."; 4 or 5 choices, of which 2 or 3 are correct and the rest are plausible but wrong; answer_indices lists every correct choice. Set is_trap true when a wrong choice is a common misconception.
+- 2 "spot_the_error": the prompt is "One of these statements is wrong. Which one?"; 3 or 4 statements, all true except one subtle trap; answer_indices points to the wrong one; is_trap true.
 misconception: for traps, name the misconception in a few words; otherwise "".
 difficulty: 1 (core idea) to 3 (expert detail).
 fact_ids: the evidence numbers the item depends on.`,
@@ -217,7 +239,8 @@ ${drafts
   const items: QuizItem[] = [];
   drafts.forEach((d, i) => {
     const verdict = check.results.find((r) => r.item === i);
-    if (!verdict?.ok || verdict.answer_index !== d.answer_index) return;
+    if (!verdict?.ok || !sameAnswers(verdict.answer_indices, d.answer_indices)) return;
+    const answers = [...d.answer_indices].sort((a, b) => a - b);
     const sources: Source[] = [];
     for (const id of d.fact_ids) {
       for (const s of byId.get(id)?.sources ?? []) {
@@ -232,7 +255,8 @@ ${drafts
         kind: d.kind,
         prompt: d.prompt.trim(),
         choices: d.choices.map((c) => c.trim()),
-        answerIndex: d.answer_index,
+        answerIndex: answers[0],
+        answerIndices: answers,
         isTrap: d.is_trap,
         explanation: d.explanation.trim(),
         misconception: d.misconception.trim(),
