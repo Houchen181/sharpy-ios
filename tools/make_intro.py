@@ -484,6 +484,33 @@ def to_kept(keeps, t):
     return sum(max(0.0, min(y, t) - x) for x, y in keeps)
 
 
+def load_marks(tour):
+    """TOURMARK name -> seconds from the start of raw.mp4."""
+    rec_start = float(open(os.path.join(tour, "rec_start.txt")).read().strip())
+    marks = {}
+    for line in open(os.path.join(tour, "marks.txt"), encoding="utf-8", errors="replace"):
+        parts = line.split()
+        if "TOURMARK" in parts:
+            i = parts.index("TOURMARK")
+            if i + 2 < len(parts):
+                marks.setdefault(parts[i + 1], float(parts[i + 2]) - rec_start)
+    return marks
+
+
+def tour_cfr(tour, work, marks):
+    """Constant-frame-rate, phone-sized copy of the tour from just before "welcome"
+    (simctl records variable frame rate, so convert the whole file before trimming).
+    Returns (path, start in raw.mp4, duration)."""
+    t0 = max(0.0, marks["welcome"] - 0.3)
+    t1 = marks["end"] + 0.6
+    cfr = os.path.join(work, "tour-cfr.mp4")
+    if not os.path.exists(cfr):
+        run(["-y", "-i", os.path.join(tour, "raw.mp4"), "-vf",
+             f"fps={FPS},trim=start={t0:.3f}:end={t1:.3f},setpts=PTS-STARTPTS,scale={SCREEN_W}:{SCREEN_H}:flags=lanczos",
+             "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "12", cfr])
+    return cfr, t0, t1 - t0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tour", required=True)
@@ -496,29 +523,14 @@ def main():
     work = a.work or os.path.join(os.path.dirname(os.path.abspath(a.out)), "work")
     os.makedirs(work, exist_ok=True)
 
-    rec_start = float(open(os.path.join(a.tour, "rec_start.txt")).read().strip())
-    marks = {}
-    for line in open(os.path.join(a.tour, "marks.txt"), encoding="utf-8", errors="replace"):
-        parts = line.split()
-        if "TOURMARK" in parts:
-            i = parts.index("TOURMARK")
-            if i + 2 < len(parts):
-                marks.setdefault(parts[i + 1], float(parts[i + 2]) - rec_start)
+    marks = load_marks(a.tour)
     missing = [m for m in {p for pair in PARTS for p in pair} if m not in marks]
     if missing:
         raise SystemExit(f"tour is missing marks: {missing}")
 
-    # 1. Constant-frame-rate, phone-sized copy of the tour (simctl records variable
-    #    frame rate, so convert the whole file before trimming).
-    t0 = max(0.0, marks["welcome"] - 0.3)
-    t1 = marks["end"] + 0.6
-    cfr = os.path.join(work, "tour-cfr.mp4")
-    if not os.path.exists(cfr):
-        run(["-y", "-i", os.path.join(a.tour, "raw.mp4"), "-vf",
-             f"fps={FPS},trim=start={t0:.3f}:end={t1:.3f},setpts=PTS-STARTPTS,scale={SCREEN_W}:{SCREEN_H}:flags=lanczos",
-             "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "12", cfr])
+    # 1. Phone-sized, constant-frame-rate copy of the tour.
+    cfr, t0, dur = tour_cfr(a.tour, work, marks)
     rel = {k: v - t0 for k, v in marks.items()}
-    dur = t1 - t0
     freezes = detect_freezes(cfr, dur)
     cuts = scene_changes(cfr)
 

@@ -34,3 +34,6 @@ node_modules/
 
 # Screenshots pulled from CI
 marketing/
+
+# Python
+__pycache__/
