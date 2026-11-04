@@ -37,15 +37,5 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>$(PRODUCT_BUNDLE_IDENTIFIER).refresh</string>
-	</array>
-	<key>SharpyAPIBaseURL</key>
-	<string>$(SHARPY_API_BASE_URL)</string>
 </dict>
 </plist>

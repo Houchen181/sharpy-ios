@@ -1,13 +1,13 @@
 name: iOS
 
-# Docs- and server-only changes skip the macOS build (server/ has its own workflow),
+# Docs-only changes skip the macOS build,
 # and manual runs don't repeat the compile job.
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', 'server/**', '**/*.md', 'scripts/**', 'tools/**']
+    paths-ignore: ['docs/**', '**/*.md', 'scripts/**', 'tools/**']
   pull_request:
-    paths-ignore: ['docs/**', 'server/**', '**/*.md', 'scripts/**', 'tools/**']
+    paths-ignore: ['docs/**', '**/*.md', 'scripts/**', 'tools/**']
   workflow_dispatch:
     inputs:
       testflight:

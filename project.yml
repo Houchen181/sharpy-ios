@@ -10,8 +10,6 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
-    # The Cloudflare Worker in server/ that holds the Claude key.
-    SHARPY_API_BASE_URL: https://sharpy-api.charges-ios.workers.dev
 targets:
   Sharpy:
     type: application

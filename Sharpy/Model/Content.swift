@@ -1,6 +1,6 @@
 import Foundation
 
-/// How deep the questions go. Banks are shared per topic + level on the server.
+/// How deep the questions go. The question bank is kept per topic and level.
 enum Level: String, CaseIterable, Codable, Identifiable {
     case curious, student, pro
 
@@ -19,6 +19,15 @@ enum Level: String, CaseIterable, Codable, Identifiable {
         case .curious: "I'm interested but have no formal training."
         case .student: "I'm studying it or took courses in it."
         case .pro: "I work in this field. Go past the textbook."
+        }
+    }
+
+    /// Who the questions are for, as the model is told.
+    var learner: String {
+        switch self {
+        case .curious: "a curious adult with no formal training in the field"
+        case .student: "a university student taking courses in the field"
+        case .pro: "a working professional or researcher in the field; go past textbook basics"
         }
     }
 }
@@ -84,7 +93,8 @@ struct DiscoverCard: Codable, Identifiable, Hashable {
     let whyItMatters: String
     let imageURL: String?
     let sources: [ItemSource]
-    let check: CheckQuestion?
+    /// Cleared when the independent check disagrees with the answer key.
+    var check: CheckQuestion?
 }
 
 struct DiscoverFeed: Codable {

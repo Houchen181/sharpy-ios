@@ -191,14 +191,16 @@ struct FeedbackView: View {
             HStack {
                 Spacer()
                 if reported {
-                    Label("Thanks. We'll take a look.", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary)
+                    Label("Removed. You won't see this question again.", systemImage: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else {
                     Menu {
                         Button("The answer is wrong") { onReport("wrong_answer") }
                         Button("The source doesn't support it") { onReport("unsupported") }
                         Button("The question is confusing") { onReport("confusing") }
                     } label: {
-                        Label("Report a problem", systemImage: "flag").font(.caption)
+                        Label("Something's wrong", systemImage: "flag").font(.caption)
                     }
                     .foregroundStyle(.secondary)
                 }

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// The learner's choices, kept in UserDefaults.
+/// The learner's choices, kept in UserDefaults. API keys live in the Keychain.
 @MainActor
 final class AppSettings: ObservableObject {
     private let defaults: UserDefaults
@@ -14,8 +14,14 @@ final class AppSettings: ObservableObject {
     @Published var reminderHour: Int { didSet { defaults.set(reminderHour, forKey: "reminderHour") } }
     @Published var reminderMinute: Int { didSet { defaults.set(reminderMinute, forKey: "reminderMinute") } }
 
-    /// Random per-install ID the server uses for fair-use limits. Not tied to the person.
-    let installID: String
+    /// Which AI service the learner's own key is for.
+    @Published var provider: ProviderKind { didSet { defaults.set(provider.rawValue, forKey: "provider") } }
+    /// Chosen model per provider.
+    @Published var models: [String: String] { didSet { defaults.set(models, forKey: "models") } }
+    /// Endpoint for the "Other (OpenAI-compatible)" provider.
+    @Published var customBaseURL: String { didSet { defaults.set(customBaseURL, forKey: "customBaseURL") } }
+    /// Bumped whenever a key is saved or removed, so views re-read the Keychain.
+    @Published private(set) var keyRevision = 0
 
     static let maxTopics = 5
     static let goals = [5, 10, 15]
@@ -29,12 +35,9 @@ final class AppSettings: ObservableObject {
         remindersOn = defaults.bool(forKey: "remindersOn")
         reminderHour = defaults.object(forKey: "reminderHour") as? Int ?? 8
         reminderMinute = defaults.object(forKey: "reminderMinute") as? Int ?? 30
-        if let id = defaults.string(forKey: "installID") {
-            installID = id
-        } else {
-            installID = UUID().uuidString
-            defaults.set(installID, forKey: "installID")
-        }
+        provider = ProviderKind(rawValue: defaults.string(forKey: "provider") ?? "") ?? .anthropic
+        models = defaults.dictionary(forKey: "models") as? [String: String] ?? [:]
+        customBaseURL = defaults.string(forKey: "customBaseURL") ?? ""
     }
 
     /// Binds a DatePicker to the reminder hour and minute.
@@ -57,7 +60,38 @@ final class AppSettings: ObservableObject {
         topics.append(topic)
     }
 
-    var api: APIClient { APIClient(installID: installID) }
+    // MARK: AI provider
+
+    /// The model chosen for the current provider.
+    var model: String {
+        get { models[provider.rawValue] ?? provider.defaultModel }
+        set { models[provider.rawValue] = newValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    var baseURL: String { provider == .custom ? customBaseURL : provider.defaultBaseURL }
+
+    func key(for kind: ProviderKind) -> String? {
+        _ = keyRevision
+        return Keychain.get(kind.keychainAccount)
+    }
+
+    func setKey(_ key: String?, for kind: ProviderKind) {
+        Keychain.set(key?.trimmingCharacters(in: .whitespacesAndNewlines), for: kind.keychainAccount)
+        keyRevision += 1
+    }
+
+    /// Everything needed to call the provider, or nil while something is missing.
+    var providerConfig: ProviderConfig? {
+        let key = self.key(for: provider) ?? ""
+        if provider.requiresKey && key.isEmpty { return nil }
+        let base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: base.hasSuffix("/") ? String(base.dropLast()) : base), url.scheme != nil, url.host != nil,
+              !model.isEmpty else { return nil }
+        return ProviderConfig(kind: provider, baseURL: url, model: model, key: key)
+    }
+
+    /// Whether practice can run: a working provider, or the screenshot demo.
+    var ready: Bool { Launch.isDemo || providerConfig != nil }
 
     /// Settings for screenshot runs (-ui-demo): a separate, reset defaults domain.
     static func demo() -> AppSettings {
@@ -78,7 +112,7 @@ final class AppSettings: ObservableObject {
 enum Launch {
     static let arguments = ProcessInfo.processInfo.arguments
     static var isDemo: Bool { arguments.contains("-ui-demo") }
-    /// Recording the promo tour: demo mode plus realistic waits where the server would work.
+    /// Recording the promo tour: demo mode plus realistic waits where the model would work.
     static var isTour: Bool { arguments.contains("-ui-tour") }
     static var tab: String? { value(after: "-ui-tab") }
 

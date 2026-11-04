@@ -15,6 +15,7 @@ struct SessionFlowView: View {
     let mode: SessionMode
 
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var bank: QuestionBank
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
@@ -57,12 +58,13 @@ struct SessionFlowView: View {
                 .font(.system(size: 56, weight: .semibold))
                 .foregroundStyle(Palette.brand.gradient)
                 .symbolEffect(.pulse)
-            Text(status)
+            let shown = bank.preparing.values.sorted().first ?? status
+            Text(shown)
                 .font(.headline)
                 .multilineTextAlignment(.center)
                 .contentTransition(.opacity)
-                .animation(.default, value: status)
-            Text("Questions come from trusted sources and are double-checked before you see them. A brand-new topic can take a minute or two the first time.")
+                .animation(.default, value: shown)
+            Text("Questions come from sources you can check and are double-checked before you see them. New questions take a minute or two to prepare; after that Sharpy keeps some ready.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -166,11 +168,10 @@ struct SessionFlowView: View {
             let need = max(3, settings.dailyGoal - reviews.count)
             let seen = records.sorted { $0.firstSeen > $1.firstSeen }.prefix(2000).map(\.id)
             do {
-                fresh = try await settings.api.sessionItems(
-                    topics: settings.topics, level: settings.level, count: need, seen: Array(seen)
-                ) { message in status = message }
-                let reviewIDs = Set(reviews.map(\.id))
-                fresh.removeAll { reviewIDs.contains($0.id) }
+                fresh = try await bank.freshItems(topics: settings.topics, level: settings.level, count: need,
+                                                  config: settings.providerConfig)
+                let skip = Set(reviews.map(\.id)).union(seen)
+                fresh.removeAll { skip.contains($0.id) }
             } catch {
                 if reviews.isEmpty {
                     phase = .failed(error.localizedDescription)
@@ -243,6 +244,7 @@ struct SessionFlowView: View {
             log.goalMet = true
             result.metGoalNow = true
         }
+        bank.consume(id)
         try? context.save()
     }
 
@@ -271,10 +273,14 @@ struct SessionFlowView: View {
             doneToday: stats.doneToday
         )
         phase = .summary
+        // Get the next session's questions ready while this one sinks in.
+        bank.topUp(topics: settings.topics, level: settings.level, config: settings.providerConfig)
     }
 
+    /// A reported question is removed from this phone for good. There's no shared
+    /// bank to retire it from: every learner's questions are their own.
     private func report(_ item: QuizItem, reason: String) {
         reported.insert(item.id)
-        Task { await settings.api.report(itemID: item.id, reason: reason) }
+        if !Launch.isDemo { bank.discard(item.id) }
     }
 }

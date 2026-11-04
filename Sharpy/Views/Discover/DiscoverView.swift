@@ -1,79 +1,76 @@
 import SwiftUI
 
-/// Keeps the last Discover feed on disk so the tab opens instantly (and offline).
-enum DiscoverCache {
-    private static var url: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("discover.json")
-    }
-
-    static func load() -> DiscoverFeed? {
-        guard !Launch.isDemo, let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(DiscoverFeed.self, from: data)
-    }
-
-    static func save(_ feed: DiscoverFeed) {
-        guard !Launch.isDemo, let data = try? JSONEncoder().encode(feed) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    /// Called from the background refresh task.
-    @MainActor
-    static func prefetch() async {
-        let installID = UserDefaults.standard.string(forKey: "installID") ?? UUID().uuidString
-        if let feed = try? await APIClient(installID: installID).discover(date: DayKey.string()) {
-            save(feed)
-        }
-    }
-}
-
+/// Builds the Discover tab once a day with the learner's own AI provider; the
+/// result is cached on disk, so later visits are instant and free.
 @MainActor
 final class DiscoverModel: ObservableObject {
     @Published var feed: DiscoverFeed? = DiscoverCache.load()
     @Published var feedError: String?
-    @Published var loadingFeed = false
+    @Published var feedStatus: String?
     @Published var updates: [String: [FieldUpdate]] = [:]
     @Published var updateNotes: [String: String] = [:]
     @Published var updatesStatus: String?
-    private var updatesDay: String?
-    private var updatesTopics: [String] = []
+    private var buildingFeed = false
+    private var buildingUpdates: Set<String> = []
 
-    func load(api: APIClient, topics: [String], force: Bool = false) async {
-        let today = DayKey.string()
-        async let feedTask: Void = loadFeed(api: api, today: today, force: force)
-        async let updatesTask: Void = loadUpdates(api: api, topics: topics, today: today, force: force)
+    func load(config: ProviderConfig?, topics: [String], force: Bool = false) async {
+        if Launch.isDemo {
+            feed = DemoData.feed
+            for topic in topics { updates[topic] = DemoData.updates.filter { $0.topic == topic } }
+            return
+        }
+        guard let config else {
+            if feed?.date != DayKey.string() { feedError = LLMError.noProvider.localizedDescription }
+            return
+        }
+        async let feedTask: Void = loadFeed(config: config, force: force)
+        async let updatesTask: Void = loadUpdates(config: config, topics: topics, force: force)
         _ = await (feedTask, updatesTask)
     }
 
-    private func loadFeed(api: APIClient, today: String, force: Bool) async {
-        if !force, feed?.date == today { return }
-        loadingFeed = feed == nil
-        defer { loadingFeed = false }
+    private func loadFeed(config: ProviderConfig, force: Bool) async {
+        let today = DayKey.string()
+        guard !buildingFeed, force || feed?.date != today else { return }
+        buildingFeed = true
+        feedStatus = "Preparing today's cards…"
+        defer {
+            buildingFeed = false
+            feedStatus = nil
+        }
         do {
-            let fresh = try await api.discover(date: today)
+            let fresh = try await DiscoverBuilder.feed(for: .now, client: LLMClient(config: config)) { @Sendable message in
+                Task { @MainActor in self.feedStatus = message }
+            }
             feed = fresh
             feedError = nil
             DiscoverCache.save(fresh)
         } catch {
-            if feed == nil { feedError = error.localizedDescription }
+            if feed == nil || feed?.date != today { feedError = error.localizedDescription }
         }
     }
 
-    private func loadUpdates(api: APIClient, topics: [String], today: String, force: Bool) async {
-        if !force, updatesDay == today, updatesTopics == topics { return }
-        updatesStatus = "Checking new papers…"
-        defer { updatesStatus = nil }
-        do {
-            try await api.fieldUpdates(topics: topics) { [weak self] message in
-                self?.updatesStatus = message
-            } onTopic: { [weak self] topic, items, note in
-                self?.updates[topic] = items
-                self?.updateNotes[topic] = note
+    private func loadUpdates(config: ProviderConfig, topics: [String], force: Bool) async {
+        let today = DayKey.string()
+        for topic in topics {
+            if !force, let cached = DiscoverCache.updates(day: today, topic: topic) {
+                updates[topic] = cached
+                continue
             }
-            updatesDay = today
-            updatesTopics = topics
-        } catch {
-            updatesStatus = nil
+            guard !buildingUpdates.contains(topic) else { continue }
+            buildingUpdates.insert(topic)
+            updatesStatus = "Reading new papers on “\(topic)”…"
+            do {
+                let items = try await DiscoverBuilder.updates(topic: topic, client: LLMClient(config: config))
+                updates[topic] = items
+                updateNotes[topic] = nil
+                DiscoverCache.saveUpdates(items, day: today, topic: topic)
+            } catch {
+                updates[topic] = []
+                updateNotes[topic] = error.localizedDescription
+            }
+            buildingUpdates.remove(topic)
         }
+        updatesStatus = nil
     }
 }
 
@@ -89,11 +86,17 @@ struct DiscoverView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
+                    if let status = model.feedStatus {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text(status).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(model.feed == nil ? 40 : 8)
+                    }
                     if let feed = model.feed {
                         ForEach(feed.cards) { DiscoverCardView(card: $0) }
-                    } else if model.loadingFeed {
-                        ProgressView("Loading today's cards…").frame(maxWidth: .infinity).padding(40)
-                    } else if let error = model.feedError {
+                    } else if let error = model.feedError, model.feedStatus == nil {
                         Text(error).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(24)
                     }
 
@@ -103,8 +106,10 @@ struct DiscoverView: View {
             }
             .background(Palette.page)
             .navigationTitle("Discover")
-            .refreshable { await model.load(api: settings.api, topics: settings.topics, force: true) }
-            .task(id: settings.topics) { await model.load(api: settings.api, topics: settings.topics) }
+            .refreshable { await model.load(config: settings.providerConfig, topics: settings.topics, force: true) }
+            .task(id: settings.topics + [settings.providerConfig?.model ?? ""]) {
+                await model.load(config: settings.providerConfig, topics: settings.topics)
+            }
         }
     }
 

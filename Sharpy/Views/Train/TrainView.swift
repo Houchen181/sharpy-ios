@@ -11,6 +11,7 @@ enum SessionMode: String, Identifiable {
 
 struct TrainView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var bank: QuestionBank
     @Query private var logs: [DayLog]
     @Query private var records: [ItemRecord]
     @State private var mode: SessionMode? = Launch.tab == "session" || Launch.tab == "answered" ? .daily : nil
@@ -22,6 +23,7 @@ struct TrainView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    if !settings.ready { providerCard }
                     todayCard
                     if dueCount > 0 { reviewCard }
                     topicsCard
@@ -82,9 +84,52 @@ struct TrainView: View {
                 mode = .daily
             }
             .buttonStyle(PrimaryButtonStyle(color: s.doneToday ? Palette.correct : Palette.brand))
+            bankStatus
         }
         .padding(18)
         .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    /// What the on-device question bank is doing: preparing, or how many are ready.
+    @ViewBuilder
+    private var bankStatus: some View {
+        if let status = bank.preparing.values.sorted().first {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        } else if settings.ready && !Launch.isDemo {
+            let ready = bank.readyCount(topics: settings.topics, level: settings.level)
+            Text(ready > 0 ? "\(ready) new questions ready" : "New questions are written when you start (a minute or two).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var providerCard: some View {
+        NavigationLink {
+            ProviderSettingsView()
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "key.fill")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Palette.brand)
+                    .frame(width: 44, height: 44)
+                    .background(Palette.brand.opacity(0.14), in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Connect your AI").font(.headline)
+                    Text("Add an API key from Anthropic, OpenRouter, OpenCode or another provider to get new questions.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
     }
 
     private var reviewCard: some View {
@@ -131,7 +176,7 @@ struct TrainView: View {
     private var honestyNote: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.shield.fill").foregroundStyle(Palette.brand)
-            Text("Questions are written by AI from trusted sources, then independently re-checked against the cited text. Some statements are deliberately wrong: your job is to catch them.")
+            Text("Questions are written by your AI from sources you can check, then independently re-checked against the quoted text. Some statements are deliberately wrong: your job is to catch them.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

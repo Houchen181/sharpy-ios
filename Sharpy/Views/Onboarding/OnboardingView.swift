@@ -2,21 +2,23 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var bank: QuestionBank
     @State private var step = 0
 
     var body: some View {
         VStack(spacing: 0) {
             if step > 0 {
-                ProgressView(value: Double(step), total: 4)
+                ProgressView(value: Double(step), total: 5)
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
             }
             Group {
                 switch step {
                 case 0: welcome
-                case 1: TopicsStep(onNext: { step = 2 })
-                case 2: levelStep
-                case 3: goalStep
+                case 1: ProviderStep(onNext: { step = 2 })
+                case 2: TopicsStep(onNext: { step = 3 })
+                case 3: levelStep
+                case 4: goalStep
                 default: ReminderStep(onDone: finish)
                 }
             }
@@ -43,7 +45,8 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
             }
             Spacer()
-            Button("Get started") { step = 1 }
+            // Screenshot and tour runs use sample questions, so they skip the provider step.
+            Button("Get started") { step = Launch.isDemo ? 2 : 1 }
                 .buttonStyle(PrimaryButtonStyle())
         }
         .padding(24)
@@ -54,7 +57,7 @@ struct OnboardingView: View {
             title: "How deep should we go?",
             subtitle: "You can change this any time.",
             buttonTitle: "Continue",
-            action: { step = 3 }
+            action: { step = 4 }
         ) {
             VStack(spacing: 12) {
                 ForEach(Level.allCases) { level in
@@ -76,7 +79,7 @@ struct OnboardingView: View {
             title: "Pick a daily goal",
             subtitle: "Small and steady beats big and rare.",
             buttonTitle: "Continue",
-            action: { step = 4 }
+            action: { step = 5 }
         ) {
             VStack(spacing: 12) {
                 ForEach(AppSettings.goals, id: \.self) { goal in
@@ -104,6 +107,8 @@ struct OnboardingView: View {
 
     private func finish() {
         settings.onboarded = true
+        // Start on the first questions now, so the first session doesn't wait for them.
+        bank.topUp(topics: settings.topics, level: settings.level, config: settings.providerConfig)
     }
 }
 
@@ -216,6 +221,28 @@ struct TopicPicker: View {
         settings.addTopic(draft)
         draft = ""
         focused = false
+    }
+}
+
+private struct ProviderStep: View {
+    let onNext: () -> Void
+    @State private var verified = false
+
+    var body: some View {
+        StepScaffold(
+            title: "Connect your AI",
+            subtitle: "Sharpy writes your questions with your own API key, straight from this iPhone. No account, no subscription: you pay your provider for what you use.",
+            buttonTitle: "Continue",
+            enabled: verified,
+            action: onNext
+        ) {
+            VStack(spacing: 20) {
+                ProviderForm(onVerified: { verified = true })
+                Button("Set this up later", action: onNext)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

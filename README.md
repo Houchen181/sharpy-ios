@@ -8,61 +8,52 @@ learn each day plus summaries of new papers in your fields. Streaks and daily
 reminders work like Duolingo's.
 
 - `Sharpy/` — native SwiftUI app (iOS 17+, SwiftData, no third-party packages)
-- `server/` — Cloudflare Worker that holds the Claude API key, plus a D1 database
+- `Sharpy/Engine/` — everything that talks to AI providers and public sources, on the phone
 - `.github/workflows/ios.yml` — builds on macOS runners (no Mac needed), simulator screenshots, TestFlight upload
+
+There is no server. Each learner brings their own API key, which stays in the iPhone's Keychain,
+and the app calls the provider directly:
+
+| Provider | API | Research |
+|---|---|---|
+| Anthropic (Claude) | Messages API, `anthropic-version: 2026-10-21` | Claude's web search, limited to trusted sites |
+| OpenRouter | OpenAI-style chat completions | Sharpy reads Wikipedia itself |
+| OpenCode Zen | Chat completions (Claude models via `/messages`) | Sharpy reads Wikipedia itself |
+| Other | Any OpenAI-compatible endpoint, including local servers | Sharpy reads Wikipedia itself |
 
 ## How content stays honest
 
-**Quiz items** (`server/src/quiz.ts`), built per topic + level and shared by everyone who picks them:
+**Quiz items** (`Engine/QuestionWriter.swift`), made in batches of about 10 per topic and level
+and kept in an on-device bank (`Engine/QuestionBank.swift`):
 
-1. **Research.** Claude searches the web, restricted to ~60 trusted domains
-   (`server/src/sources.ts`: encyclopedias, journals, .gov/.edu, official docs), and writes one
-   `FACT:` line per finding. Only facts carrying an API citation to a trusted page are kept, so
-   every URL and quote comes from the search results, not from the model's memory.
-2. **Write.** From those numbered facts, Claude writes 10 items: true/false, single-answer
+1. **Research** (`Engine/Research.swift`). With Claude, the model searches the web restricted to
+   ~60 trusted domains (`Engine/TrustedSources.swift`: encyclopedias, journals, .gov/.edu,
+   official docs) and writes one `FACT:` line per finding; only facts carrying an API citation to a
+   trusted page are kept. With any other model, Sharpy fetches a few Wikipedia articles on the
+   topic, the model picks facts and quotes them, and a fact survives only if its quote appears word
+   for word in the article. Either way, every quote comes from a real page, not from memory.
+2. **Write.** From those numbered facts the model writes 10 items: true/false, single-answer
    multiple choice, "select all that apply" and "spot the error", several of them traps.
    Select-all items are scored all or nothing.
 3. **Check.** An independent pass answers every item from the evidence alone. Items where it
    disagrees with the key, or the evidence doesn't settle it, are dropped.
-4. **Report.** Two learner reports retire an item for everyone.
+4. **Report.** "Something's wrong" removes an item from the learner's phone and reviews.
 
-**Discover cards** (`server/src/discover.ts`) are written from Wikipedia's featured feed,
-NASA APOD, Quanta Magazine and a web-searched "field of the day". Each card's quote is checked
-to appear word for word in its source. **Field updates** (`server/src/updates.ts`) summarize new
-papers from Crossref (or OpenAlex with a key) and arXiv; preprints are labelled.
+New batches are told what the learner already has, so they cover new ground. After a session,
+topics with fewer than 8 questions waiting are topped up in the background.
 
-## Server setup (once)
+**Discover cards** (`Engine/DiscoverBuilder.swift`) are written once a day from Wikipedia's
+featured feed, NASA APOD, Quanta Magazine and a "field of the day", and cached on the phone. Each
+card's quote is checked to appear word for word in its source. **Field updates** summarize new
+papers from Crossref and arXiv; preprints are labelled.
 
-```bash
-cd server
-npm install
-npx wrangler login                     # opens the browser for your Cloudflare account
-npx wrangler d1 create sharpy          # paste the printed database_id into wrangler.toml
-npx wrangler d1 migrations apply sharpy --remote
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ADMIN_TOKEN    # any long random string; protects /v1/admin/usage
-npx wrangler deploy
-```
+## Costs
 
-Optional secrets: `NASA_API_KEY` (free at api.nasa.gov; `DEMO_KEY` is used otherwise) and
-`OPENALEX_API_KEY` (free; better paper search than Crossref).
-
-The app reads the Worker URL from `SHARPY_API_BASE_URL` in `project.yml`.
-
-### Cost controls
-
-Every generation is a paid Claude call (`MODEL` in `wrangler.toml`, default `claude-opus-5-5`).
-A fresh 10-item batch costs roughly $0.30–0.60; Discover is one build a day for everyone.
-Caps in `wrangler.toml`: `DAILY_GENERATION_CAP` for the whole app and
-`PER_INSTALL_DAILY_GENERATIONS` per device. Past them, learners get cached questions only.
-Check spend with:
-
-```bash
-curl -H "Authorization: Bearer $ADMIN_TOKEN" https://sharpy-api.<your-subdomain>.workers.dev/v1/admin/usage
-```
-
-Before a public launch, add App Attest so only the real app can call the Worker; today it
-relies on per-install and global caps.
+Every batch, Discover build and paper briefing is billed to the learner's own provider account.
+The You → AI provider screen shows this month's tokens, web searches and an estimated cost
+(from list prices for Claude; OpenRouter reports its own; other providers may not). As a safety
+stop against bugs or loops, the app makes at most 12 question batches a day
+(`UsageStore.dailyBatchCap`).
 
 ## Building the app
 
@@ -76,7 +67,7 @@ The icon is drawn by `tools/make_icon.py` (Pillow).
 ## Intro video
 
 A 3-minute 1920x1080 intro is cut from a scripted UI tour (`SharpyUITests/TourUITests.swift`,
-demo data, `-ui-tour` adds the server's research pauses):
+demo data, `-ui-tour` adds realistic research pauses):
 
 1. Actions → iOS → Run workflow → **video**. Download the `tour` artifact (raw.mp4, marks.txt, rec_start.txt).
 2. `python tools/make_music.py music.wav --seconds 180` — an original synthesized background track.
@@ -84,3 +75,19 @@ demo data, `-ui-tour` adds the server's research pauses):
 
 Captions and cards live at the top of `make_intro.py`; per-step hold lengths decide how long
 still screens stay, and are scaled so the cut lands on exactly 3:00.
+
+## Promo film
+
+"Sharpen" is a 2-minute animated story film (its script, `marketing/sharpy-promo-film-script.md`,
+lives in the git-ignored marketing folder).
+It is drawn in code as a top-down world of flat objects, with no actors or voiceover, and cuts
+to the same tour footage for its three app shots. Music and sound effects are synthesized
+(`tools/promo_audio.py`).
+
+```bash
+python tools/make_promo.py --tour <tour dir> --icon Sharpy/Assets.xcassets/AppIcon.appiconset/icon-1024.png --out marketing/sharpy-promo-1920x1080.mp4
+```
+
+`--still 12.5,40` writes single frames as PNGs for checking a shot; `--audio-only` redoes the
+soundtrack on the last rendered picture. Scene lengths, dialogue and sound cues are at the top of
+`make_promo.py`.

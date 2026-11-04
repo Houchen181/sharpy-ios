@@ -19,6 +19,18 @@ struct ProfileView: View {
                     StreakCalendar(goalDays: stats.goalDays)
                         .padding(.vertical, 6)
                 }
+                Section {
+                    NavigationLink {
+                        ProviderSettingsView()
+                    } label: {
+                        LabeledContent("Provider", value: settings.providerConfig?.displayName ?? "Not set up")
+                            .lineLimit(1)
+                    }
+                } header: {
+                    Text("AI provider")
+                } footer: {
+                    Text("Sharpy runs on your own API key, straight from this iPhone.")
+                }
                 Section("Practice") {
                     NavigationLink {
                         TopicsEditor()
@@ -142,16 +154,18 @@ struct AboutSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    section("Your AI, your key",
+                            "Sharpy has no server. It calls the AI provider you chose (Anthropic, OpenRouter, OpenCode or another) directly from this iPhone with your own API key, which stays in the Keychain. Your topics and progress never leave the phone except as part of those requests.")
                     section("Where questions come from",
-                            "Claude, Anthropic's AI model, searches a fixed list of trusted sites: encyclopedias, peer-reviewed journals, government and university pages, and official documentation. It writes facts only from pages it actually found, and each fact keeps the exact excerpt it came from.")
+                            "With Claude, the model searches a fixed list of trusted sites (encyclopedias, peer-reviewed journals, government and university pages, official documentation), and each fact keeps the exact excerpt the search returned. With other models, Sharpy fetches Wikipedia articles itself, and a fact is kept only if its quote appears word for word in the article.")
                     section("How answers are checked",
                             "A second, independent pass answers every question using only those excerpts. If it doesn't reach the same answer, or the excerpt doesn't settle it, the question is thrown away.")
                     section("Why some statements are wrong on purpose",
                             "Traps are convincing statements with one real error: a swapped date, a wrong attribution, reversed cause and effect, or a popular misconception. Catching them trains the habit you need when reading anything, including AI answers.")
                     section("Daily discoveries",
-                            "Discover cards are written from Wikipedia's featured content, NASA's Astronomy Picture of the Day, Quanta Magazine and the field of the day, and every card quotes its source word for word. Field updates summarize new papers from their abstracts; preprints are labelled because they haven't been peer reviewed.")
+                            "Discover cards are written once a day from Wikipedia's featured content, NASA's Astronomy Picture of the Day, Quanta Magazine and the field of the day, and every card quotes its source word for word. Field updates summarize new papers from their abstracts; preprints are labelled because they haven't been peer reviewed.")
                     section("If something looks wrong",
-                            "Tap “Report a problem” under any answer. Two independent reports remove a question for everyone.")
+                            "Tap “Something's wrong” under any answer to remove that question from your phone for good. No model is perfect, which is exactly why every answer shows its source.")
                 }
                 .padding(20)
             }
