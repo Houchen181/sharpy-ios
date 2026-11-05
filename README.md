@@ -63,31 +63,3 @@ or sign and upload to TestFlight. Signing uses the same 7 secrets as Billow; see
 `scripts/signing.sh`.
 
 The icon is drawn by `tools/make_icon.py` (Pillow).
-
-## Intro video
-
-A 3-minute 1920x1080 intro is cut from a scripted UI tour (`SharpyUITests/TourUITests.swift`,
-demo data, `-ui-tour` adds realistic research pauses):
-
-1. Actions → iOS → Run workflow → **video**. Download the `tour` artifact (raw.mp4, marks.txt, rec_start.txt).
-2. `python tools/make_music.py music.wav --seconds 180` — an original synthesized background track.
-3. `python tools/make_intro.py --tour <tour dir> --icon Sharpy/Assets.xcassets/AppIcon.appiconset/icon-1024.png --music music.wav --out marketing/sharpy-intro-1920x1080.mp4`
-
-Captions and cards live at the top of `make_intro.py`; per-step hold lengths decide how long
-still screens stay, and are scaled so the cut lands on exactly 3:00.
-
-## Promo film
-
-"Sharpen" is a 2-minute animated story film (its script, `marketing/sharpy-promo-film-script.md`,
-lives in the git-ignored marketing folder).
-It is drawn in code as a top-down world of flat objects, with no actors or voiceover, and cuts
-to the same tour footage for its three app shots. Music and sound effects are synthesized
-(`tools/promo_audio.py`).
-
-```bash
-python tools/make_promo.py --tour <tour dir> --icon Sharpy/Assets.xcassets/AppIcon.appiconset/icon-1024.png --out marketing/sharpy-promo-1920x1080.mp4
-```
-
-`--still 12.5,40` writes single frames as PNGs for checking a shot; `--audio-only` redoes the
-soundtrack on the last rendered picture. Scene lengths, dialogue and sound cues are at the top of
-`make_promo.py`.
